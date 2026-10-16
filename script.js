@@ -3,6 +3,7 @@ const titleInput = document.getElementById("note-title");
 const textInput = document.getElementById("note-text");
 const addButton = document.getElementById("add-note");
 const notesList = document.getElementById("notes-list");
+
 const exportButton = document.getElementById("export-notes");
 const importButton = document.getElementById("import-notes");
 const importFile = document.getElementById("import-file");
@@ -73,7 +74,6 @@ addButton.addEventListener("click", function () {
     };
 
     notes.unshift(note);
-
     saveNotes();
     renderNotes();
 
@@ -81,23 +81,9 @@ addButton.addEventListener("click", function () {
     textInput.value = "";
 });
 
-// Показываем заметки при открытии приложения
-renderNotes();
-if ("serviceWorker" in navigator) {
-    window.addEventListener("load", function () {
-        navigator.serviceWorker.register("./sw.js")
-            .then(function () {
-                console.log("Офлайн-режим подключён");
-            })
-            .catch(function (error) {
-                console.error("Ошибка Service Worker:", error);
-            });
-    });
-}
-// Экспорт заметок в JSON-файл
+// Экспорт заметок
 exportButton.addEventListener("click", function () {
     const backup = JSON.stringify(notes, null, 2);
-
     const blob = new Blob([backup], {
         type: "application/json"
     });
@@ -109,20 +95,21 @@ exportButton.addEventListener("click", function () {
     link.download = "my-notes-backup.json";
     link.click();
 
-    URL.revokeObjectURL(url);
+    setTimeout(function () {
+        URL.revokeObjectURL(url);
+    }, 1000);
 });
+
 // Открываем выбор файла для импорта
 importButton.addEventListener("click", function () {
     importFile.click();
 });
 
-// Читаем и проверяем резервную копию
+// Импорт заметок
 importFile.addEventListener("change", function () {
     const file = importFile.files[0];
 
-    if (!file) {
-        return;
-    }
+    if (!file) return;
 
     const reader = new FileReader();
 
@@ -135,6 +122,7 @@ importFile.addEventListener("change", function () {
                 importedNotes.every(function (note) {
                     return (
                         note &&
+                        note !== null &&
                         typeof note.id === "string" &&
                         typeof note.title === "string" &&
                         typeof note.text === "string"
@@ -146,11 +134,9 @@ importFile.addEventListener("change", function () {
                 return;
             }
 
-            const shouldReplace = confirm(
+            if (!confirm(
                 "Импорт заменит все текущие заметки. Продолжить?"
-            );
-
-            if (!shouldReplace) {
+            )) {
                 return;
             }
 
@@ -160,7 +146,7 @@ importFile.addEventListener("change", function () {
 
             alert("Заметки успешно восстановлены.");
         } catch (error) {
-            alert("Не удалось прочитать файл. Проверь, что это JSON-копия заметок.");
+            alert("Не удалось прочитать файл. Проверь JSON-копию.");
         } finally {
             importFile.value = "";
         }
@@ -168,3 +154,19 @@ importFile.addEventListener("change", function () {
 
     reader.readAsText(file);
 });
+
+// Показываем заметки при открытии
+renderNotes();
+
+// Офлайн-режим
+if ("serviceWorker" in navigator) {
+    window.addEventListener("load", function () {
+        navigator.serviceWorker.register("./sw.js")
+            .then(function () {
+                console.log("Офлайн-режим подключён");
+            })
+            .catch(function (error) {
+                console.error("Ошибка Service Worker:", error);
+            });
+    });
+}
