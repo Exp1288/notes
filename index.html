@@ -1,0 +1,48 @@
+
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#ffffff">
+    <link rel="manifest" href="manifest.json">
+
+    <title>Мои заметки</title>
+    
+
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <main class="app">
+        <header>
+            <h1>Мои заметки</h1>
+            <p>Все твои мысли в одном месте</p>
+        </header>
+
+        <section class="note-form">
+            <input
+                id="note-title"
+                type="text"
+                placeholder="Название заметки"
+            >
+
+            <textarea
+                id="note-text"
+                placeholder="О чём ты хочешь написать?"
+                rows="4"
+            ></textarea>
+
+            <button id="add-note">Добавить заметку</button>
+        </section>
+
+        <section>
+            <h2>Мои записи</h2>
+            <div id="notes-list">
+                <p class="empty-message">Пока заметок нет</p>
+            </div>
+        </section>
+    </main>
+
+    <script src="script.js"></script>
+</body>
+</html>

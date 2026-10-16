@@ -1,0 +1,11 @@
+
+{
+    "name": "Мои заметки",
+    "short_name": "Заметки",
+    "description": "Личные заметки без интернета",
+    "start_url": "./index.html",
+    "scope": "./",
+    "display": "standalone",
+    "background_color": "#f4f5f7",
+    "theme_color": "#ffffff"
+}

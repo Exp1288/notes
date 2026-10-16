@@ -1,0 +1,97 @@
+
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    background: #f4f5f7;
+    color: #202124;
+    font-family: Arial, sans-serif;
+}
+
+.app {
+    width: 100%;
+    max-width: 700px;
+    margin: 0 auto;
+    padding: 24px 18px;
+}
+
+header {
+    margin-bottom: 28px;
+}
+
+h1 {
+    margin-bottom: 8px;
+    font-size: 30px;
+}
+
+header p {
+    color: #666;
+}
+
+.note-form {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-bottom: 32px;
+}
+
+input,
+textarea {
+    width: 100%;
+    padding: 14px;
+    border: 1px solid #ddd;
+    border-radius: 10px;
+    font: inherit;
+    background: white;
+}
+
+textarea {
+    resize: vertical;
+}
+
+button {
+    padding: 14px;
+    border: none;
+    border-radius: 10px;
+    background: #315efb;
+    color: white;
+    font-size: 16px;
+    cursor: pointer;
+}
+
+button:hover {
+    background: #244bd0;
+}
+
+.note {
+    padding: 16px;
+    margin-bottom: 12px;
+    background: white;
+    border-radius: 12px;
+    overflow-wrap: anywhere;
+}
+
+.note h3 {
+    margin-top: 0;
+}
+
+.note p {
+    white-space: pre-wrap;
+}
+
+.delete-button {
+    margin-top: 8px;
+    background: #e5484d;
+}
+
+.empty-message {
+    color: #777;
+}
+
+@media (min-width: 600px) {
+    .app {
+        padding-top: 40px;
+    }
+}
