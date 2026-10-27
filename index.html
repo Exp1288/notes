@@ -1,60 +1,89 @@
-
 <!DOCTYPE html>
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self'; img-src 'self' data:; connect-src 'self' https://*.supabase.co; object-src 'none'; base-uri 'none'; form-action 'none'">
+    <meta name="referrer" content="no-referrer">
     <meta name="theme-color" content="#ffffff">
     <link rel="manifest" href="manifest.json">
-
     <title>Мои заметки</title>
-    
-
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
     <main class="app">
         <header>
-            <h1>Мои заметки</h1>
-            <p>Все твои мысли в одном месте</p>
+            <div>
+                <h1>Мои заметки</h1>
+                <p>Все твои мысли в одном месте</p>
+            </div>
+            <span id="sync-status" class="hint" role="status"></span>
         </header>
 
+        <details class="panel">
+            <summary>Настройки и аккаунт</summary>
+            <div class="panel-body">
+                <h2>Внешний вид</h2>
+                <label>Тема
+                    <select id="set-theme">
+                        <option value="system">Как в системе</option>
+                        <option value="light">Светлая</option>
+                        <option value="dark">Тёмная</option>
+                    </select>
+                </label>
+                <label>Цвет кнопок
+                    <input id="set-accent" type="color">
+                </label>
+                <label>Размер текста
+                    <select id="set-font">
+                        <option value="14">Мелкий</option>
+                        <option value="16">Обычный</option>
+                        <option value="18">Крупный</option>
+                    </select>
+                </label>
+
+                <h2>Синхронизация</h2>
+                <div id="auth-out" hidden>
+                    <input id="auth-email" type="email" placeholder="Email" autocomplete="email">
+                    <input id="auth-pass" type="password" placeholder="Пароль (от 8 символов)" autocomplete="current-password">
+                    <div class="row">
+                        <button id="auth-in-btn">Войти</button>
+                        <button id="auth-up-btn" class="secondary">Создать аккаунт</button>
+                    </div>
+                </div>
+                <div id="auth-in" hidden>
+                    <p>Вы вошли как <strong id="user-email"></strong></p>
+                    <div class="row">
+                        <button id="sync-now">Синхронизировать</button>
+                        <button id="logout" class="secondary">Выйти</button>
+                    </div>
+                </div>
+                <p id="auth-msg" class="hint"></p>
+            </div>
+        </details>
+
+        <nav id="folders" class="folders" aria-label="Папки"></nav>
+
         <section class="note-form">
-            <input
-                id="note-title"
-                type="text"
-                placeholder="Название заметки"
-            >
-
-            <textarea
-                id="note-text"
-                placeholder="О чём ты хочешь написать?"
-                rows="4"
-            ></textarea>
-
+            <input id="note-title" type="text" maxlength="200" placeholder="Название заметки">
+            <textarea id="note-text" maxlength="20000" placeholder="О чём ты хочешь написать?" rows="4"></textarea>
+            <select id="note-folder" aria-label="Папка"></select>
             <button id="add-note">Добавить заметку</button>
             <div class="backup-controls">
-    <button id="export-notes">Экспорт заметок</button>
-
-    <button id="import-notes">Импорт заметок</button>
-
-    <input
-        id="import-file"
-        type="file"
-        accept=".json,application/json"
-        hidden
-    >
-</div>
+                <button id="export-notes" class="secondary">Экспорт заметок</button>
+                <button id="import-notes" class="secondary">Импорт заметок</button>
+                <input id="import-file" type="file" accept=".json,application/json" hidden>
+            </div>
         </section>
 
         <section>
             <h2>Мои записи</h2>
-            <div id="notes-list">
-                <p class="empty-message">Пока заметок нет</p>
-            </div>
+            <div id="notes-list"></div>
         </section>
     </main>
 
+    <script src="config.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
     <script src="script.js"></script>
 </body>
 </html>

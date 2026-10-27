@@ -1,97 +1,82 @@
+* { box-sizing: border-box; }
 
-* {
-    box-sizing: border-box;
+:root {
+    --bg: #f4f5f7; --card: #fff; --text: #202124; --muted: #666; --border: #ddd;
+    --accent: #315efb; --fs: 16px;
 }
+:root[data-theme="dark"] {
+    --bg: #16181d; --card: #22252c; --text: #e8eaed; --muted: #9aa0a6; --border: #3a3d45;
+}
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme]) {
+        --bg: #16181d; --card: #22252c; --text: #e8eaed; --muted: #9aa0a6; --border: #3a3d45;
+    }
+}
+
+html { font-size: var(--fs); }
 
 body {
     margin: 0;
-    background: #f4f5f7;
-    color: #202124;
+    background: var(--bg);
+    color: var(--text);
     font-family: Arial, sans-serif;
 }
 
-.app {
+.app { width: 100%; max-width: 700px; margin: 0 auto; padding: 24px 18px; }
+
+header { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 20px; }
+h1 { margin: 0 0 8px; font-size: 1.9rem; }
+h2 { font-size: 1.15rem; margin: 18px 0 10px; }
+header p { margin: 0; color: var(--muted); }
+.hint { color: var(--muted); font-size: .85rem; }
+
+input, textarea, select {
     width: 100%;
-    max-width: 700px;
-    margin: 0 auto;
-    padding: 24px 18px;
-}
-
-header {
-    margin-bottom: 28px;
-}
-
-h1 {
-    margin-bottom: 8px;
-    font-size: 30px;
-}
-
-header p {
-    color: #666;
-}
-
-.note-form {
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-    margin-bottom: 32px;
-}
-
-input,
-textarea {
-    width: 100%;
-    padding: 14px;
-    border: 1px solid #ddd;
+    padding: 12px;
+    border: 1px solid var(--border);
     border-radius: 10px;
     font: inherit;
-    background: white;
+    background: var(--card);
+    color: var(--text);
 }
-
-textarea {
-    resize: vertical;
-}
+input[type="color"] { width: 3.5rem; height: 2.5rem; padding: 2px; }
+textarea { resize: vertical; }
 
 button {
-    padding: 14px;
+    padding: 12px 14px;
     border: none;
     border-radius: 10px;
-    background: #315efb;
-    color: white;
-    font-size: 16px;
+    background: var(--accent);
+    color: #fff;
+    font: inherit;
     cursor: pointer;
 }
+button:hover { filter: brightness(.9); }
+button.secondary { background: transparent; color: var(--text); border: 1px solid var(--border); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
-button:hover {
-    background: #244bd0;
-}
+.panel { background: var(--card); border-radius: 12px; padding: 14px 16px; margin-bottom: 18px; }
+.panel summary { cursor: pointer; font-weight: bold; }
+.panel-body label { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+.panel-body label select { width: auto; min-width: 9rem; }
+.panel-body input { margin-bottom: 10px; }
+.row { display: flex; gap: 10px; flex-wrap: wrap; }
 
-.note {
-    padding: 16px;
-    margin-bottom: 12px;
-    background: white;
-    border-radius: 12px;
-    overflow-wrap: anywhere;
-}
+.folders { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 18px; }
+.chip { padding: 8px 12px; border: 1px solid var(--border); background: var(--card); color: var(--text); border-radius: 999px; }
+.chip.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+.chip.ghost { background: transparent; color: var(--muted); }
 
-.note h3 {
-    margin-top: 0;
-}
+.note-form { display: flex; flex-direction: column; gap: 12px; margin-bottom: 32px; }
+.backup-controls { display: flex; gap: 10px; flex-wrap: wrap; }
 
-.note p {
-    white-space: pre-wrap;
-}
+.note { padding: 16px; margin-bottom: 12px; background: var(--card); border-radius: 12px; overflow-wrap: anywhere; }
+.note h3 { margin-top: 0; }
+.note p { white-space: pre-wrap; }
+.note-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.note-actions select { width: auto; padding: 8px; }
+.delete-button { background: #e5484d; }
 
-.delete-button {
-    margin-top: 8px;
-    background: #e5484d;
-}
+.empty-message { color: var(--muted); }
 
-.empty-message {
-    color: #777;
-}
-
-@media (min-width: 600px) {
-    .app {
-        padding-top: 40px;
-    }
-}
+@media (min-width: 600px) { .app { padding-top: 40px; } }
