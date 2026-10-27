@@ -1,5 +1,5 @@
-const CACHE_NAME = "my-notes-v2";
-const SUPABASE_JS = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js";
+const CACHE_NAME = "my-notes-v4";
+const SUPABASE_JS = "./supabase.min.js";
 
 const FILES_TO_CACHE = [
     "./", "./index.html", "./style.css", "./script.js", "./config.js", "./manifest.json"
@@ -33,13 +33,22 @@ self.addEventListener("fetch", function (event) {
     const url = new URL(event.request.url);
 
     // Запросы к серверу синхронизации никогда не кэшируем
-    if (event.request.method !== "GET" || (url.origin !== location.origin && event.request.url !== SUPABASE_JS)) {
+    if (event.request.method !== "GET" || url.origin !== location.origin) {
         return;
     }
 
+    // Сначала свежая версия из сети, при отсутствии интернета берём из кэша
     event.respondWith(
-        caches.match(event.request).then(function (cached) {
-            return cached || fetch(event.request);
+        fetch(event.request).then(function (response) {
+            if (response.ok) {
+                const copy = response.clone();
+                caches.open(CACHE_NAME).then(function (cache) { cache.put(event.request, copy); });
+            }
+            return response;
+        }).catch(function () {
+            return caches.match(event.request).then(function (cached) {
+                return cached || caches.match("./index.html");
+            });
         })
     );
 });
