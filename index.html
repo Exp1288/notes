@@ -127,8 +127,10 @@
             <section id="view-matrix" hidden>
                 <p class="hint">Перетаскивайте заметки между квадратами или выбирайте квадрат в списке.</p>
                 <div id="matrix-grid" class="matrix"></div>
-                <h2>Не распределены</h2>
-                <div id="matrix-pool" class="pool"></div>
+                <details id="pool-box" class="pool-box" open>
+                    <summary>Не распределены <span id="pool-count"></span></summary>
+                    <div id="matrix-pool" class="pool"></div>
+                </details>
             </section>
 
             <section id="view-canvas" hidden>

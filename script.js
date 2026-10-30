@@ -357,8 +357,13 @@ function quadItem(n) {
     const d = el("div", "q-item");
     d.draggable = true;
     d.addEventListener("dragstart", function (e) { e.dataTransfer.setData("text/plain", n.id); });
+
+    const text = el("div", "q-text");
     const t = el("button", "link-btn", n.title || "Без названия");
     t.addEventListener("click", function () { openNote(n.id); });
+    const f = liveFolders().find(function (x) { return x.id === folderOf(n); });
+    text.append(t, el("small", "badge", f ? "📁 " + f.name : "Без папки"));
+
     const s = document.createElement("select");
     s.setAttribute("aria-label", "Квадрат");
     [["", "Без квадрата"]].concat(QUADS.map(function (q, i) { return [String(i), q]; })).forEach(function (p) {
@@ -368,7 +373,23 @@ function quadItem(n) {
     });
     s.value = n.quad == null ? "" : String(n.quad);
     s.addEventListener("change", function () { setQuad(n, s.value); });
-    d.append(t, s);
+    d.append(text, s);
+    return d;
+}
+
+// Группа нераспределённых заметок (одна папка), её можно сворачивать
+function poolGroup(key, label, list) {
+    if (!list.length) return null;
+    const d = document.createElement("details");
+    d.className = "pool-group";
+    d.open = !(ui.poolClosed || []).includes(key);
+    d.addEventListener("toggle", function () {
+        ui.poolClosed = (ui.poolClosed || []).filter(function (x) { return x !== key; });
+        if (!d.open) ui.poolClosed.push(key);
+        saveUI();
+    });
+    d.append(el("summary", "", label + " (" + list.length + ")"));
+    list.forEach(function (n) { d.append(quadItem(n)); });
     return d;
 }
 
@@ -383,11 +404,28 @@ function renderMatrix() {
         dropZone(q, String(i));
         grid.append(q);
     });
+
+    const free = live.filter(function (n) { return n.quad == null; })
+        .sort(function (a, b) { return (a.title || "").localeCompare(b.title || ""); });
     const pool = $("matrix-pool");
     pool.replaceChildren();
-    live.filter(function (n) { return n.quad == null; }).forEach(function (n) { pool.append(quadItem(n)); });
-    dropZone(pool, "");
+    liveFolders().forEach(function (f) {
+        const g = poolGroup(f.id, "📁 " + f.name, free.filter(function (n) { return folderOf(n) === f.id; }));
+        if (g) pool.append(g);
+    });
+    const rest = poolGroup("none", "Без папки", free.filter(function (n) { return !folderOf(n); }));
+    if (rest) pool.append(rest);
+    if (!free.length) pool.append(el("p", "empty-message", "Все заметки распределены"));
+    $("pool-count").textContent = "(" + free.length + ")";
+    $("pool-box").open = !ui.poolHidden;
 }
+
+// Эти обработчики добавляем один раз
+dropZone($("pool-box"), "");
+$("pool-box").addEventListener("toggle", function () {
+    ui.poolHidden = !$("pool-box").open;
+    saveUI();
+});
 
 /* Холст */
 

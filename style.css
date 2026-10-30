@@ -157,3 +157,11 @@ button.secondary { background: transparent; color: var(--text); border: 1px soli
 .card.text textarea { width: 100%; min-height: 70px; resize: vertical; padding: 6px; font: inherit; }
 .card.image { min-height: 0; padding: 6px; }
 .card.image img { display: block; width: 100%; border-radius: 6px; pointer-events: none; }
+
+/* ---------- Эйзенхауэр: папки и сворачиваемый список ---------- */
+.q-text { display: flex; flex-direction: column; align-items: flex-start; min-width: 0; flex: 1; }
+.badge { font-size: .75rem; color: var(--muted); padding-left: 4px; }
+.pool-box { margin-top: 18px; }
+.pool-box > summary { cursor: pointer; font-weight: bold; font-size: 1.15rem; margin-bottom: 8px; }
+.pool-group { margin-top: 10px; }
+.pool-group > summary { cursor: pointer; color: var(--muted); }
