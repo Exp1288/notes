@@ -133,10 +133,31 @@
 
             <section id="view-canvas" hidden>
                 <div class="row canvas-tools">
-                    <select id="canvas-add" aria-label="Добавить на холст"></select>
+                    <select id="canvas-select" aria-label="Холст"></select>
+                    <button id="canvas-new" class="secondary" title="Новый холст">＋</button>
+                    <button id="canvas-rename" class="secondary" title="Переименовать холст">✎</button>
+                    <button id="canvas-del" class="secondary" title="Удалить холст">🗑</button>
+                </div>
+                <div class="row canvas-tools">
+                    <select id="canvas-add" aria-label="Добавить заметку"></select>
+                    <button id="canvas-text" class="secondary">Текст</button>
+                    <button id="canvas-img-btn" class="secondary">Фото</button>
+                    <input id="canvas-img" type="file" accept="image/*" hidden>
                     <button id="link-mode" class="secondary">Связать</button>
                 </div>
-                <p class="hint">Тяните карточки и сам холст. Режим «Связать»: нажмите две карточки подряд. Чтобы удалить связь, нажмите на линию.</p>
+                <div class="row canvas-tools">
+                    <button id="zoom-out" class="secondary" title="Уменьшить">−</button>
+                    <span id="zoom-label" class="hint">100%</span>
+                    <button id="zoom-in" class="secondary" title="Увеличить">＋</button>
+                    <button id="zoom-reset" class="secondary">Сбросить</button>
+                </div>
+                <div id="link-bar" class="row link-bar" hidden>
+                    <span>Выбрана связь:</span>
+                    <input id="link-color" type="color" aria-label="Цвет связи">
+                    <button id="link-del" class="delete-button">Удалить связь</button>
+                    <button id="link-done" class="secondary">Готово</button>
+                </div>
+                <p class="hint">Режим «Связать»: нажмите две карточки подряд. Нажмите на линию, чтобы сменить её цвет или удалить. Колесо мыши или кнопки меняют масштаб.</p>
                 <div id="canvas" class="canvas"><div id="plane" class="plane"></div></div>
             </section>
         </main>

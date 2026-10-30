@@ -38,7 +38,13 @@ function loadData() {
     };
 }
 
-let db = loadData();
+function ensure(d) {
+    d.canvases = Array.isArray(d.canvases) ? d.canvases : [];
+    d.blocks = Array.isArray(d.blocks) ? d.blocks : [];
+    return d;
+}
+
+let db = ensure(loadData());
 let current = "all"; // "all" | "none" | id папки
 
 function persist() {
@@ -52,7 +58,7 @@ function touch(item) { item.updatedAt = Date.now(); item.dirty = true; }
 
 function tombstone(item) {
     item.deleted = true;
-    if ("text" in item) { item.title = ""; item.text = ""; } else { item.name = ""; }
+    if ("text" in item) { item.text = ""; if ("title" in item) item.title = ""; if ("src" in item) item.src = ""; } else { item.name = ""; }
     touch(item);
 }
 
@@ -73,6 +79,7 @@ const layoutEl = $("layout");
 const editorEl = $("note-body");
 const QUADS = ["1. Срочно и важно", "2. Важно, не срочно", "3. Срочно, не важно", "4. Не срочно и не важно"];
 const FACES = ["Arial", "Georgia", "Courier New", "Times New Roman", "Verdana", "Trebuchet MS"];
+const DAILY_FOLDER = "Дневник";
 const TAGS = ["B", "STRONG", "I", "EM", "U", "S", "BR", "DIV", "P", "SPAN", "FONT", "UL", "OL", "LI"];
 let openId = null, view = "editor", loadedId = null, loadedVer = 0;
 
@@ -114,15 +121,7 @@ function toHTML(note) {
 
 // Проверка дополнительных полей заметки (из файла или с сервера)
 function extras(d) {
-    const num = function (v) { return typeof v === "number" && isFinite(v) ? Math.round(v) : null; };
-    const x = num(d.cx), y = num(d.cy), onCanvas = x !== null && y !== null;
-    return {
-        rich: !!d.rich,
-        quad: Number.isInteger(d.quad) && d.quad >= 0 && d.quad <= 3 ? d.quad : null,
-        cx: onCanvas ? x : null, cy: onCanvas ? y : null,
-        links: Array.isArray(d.links)
-            ? d.links.filter(function (id) { return typeof id === "string" && ID_RE.test(id); }).slice(0, 50) : []
-    };
+    return { rich: !!d.rich, quad: Number.isInteger(d.quad) && d.quad >= 0 && d.quad <= 3 ? d.quad : null };
 }
 
 function folderOptions(select, selected) {
@@ -147,10 +146,10 @@ function openNote(id) {
     render();
 }
 
-function newNote(title) {
+function newNote(title, folderId) {
     const n = {
-        id: crypto.randomUUID(), title: title || "", text: "", rich: true, folderId: null,
-        quad: null, cx: null, cy: null, links: [], updatedAt: Date.now(), deleted: false, dirty: true
+        id: crypto.randomUUID(), title: title || "", text: "", rich: true, folderId: folderId || null,
+        quad: null, updatedAt: Date.now(), deleted: false, dirty: true
     };
     db.notes.push(n);
     save();
@@ -322,7 +321,13 @@ $("add-folder").addEventListener("click", addFolder);
 $("today-note").addEventListener("click", function () {
     const title = new Date().toLocaleDateString("ru-RU");
     const exists = db.notes.find(function (n) { return !n.deleted && n.title === title; });
-    if (exists) openNote(exists.id); else newNote(title);
+    if (exists) { openNote(exists.id); return; }
+    let f = liveFolders().find(function (x) { return x.name === DAILY_FOLDER; });
+    if (!f) {
+        f = { id: crypto.randomUUID(), name: DAILY_FOLDER, updatedAt: Date.now(), deleted: false, dirty: true };
+        db.folders.push(f);
+    }
+    newNote(title, f.id);
 });
 
 ["side-toggle", "side-open"].forEach(function (id) {
@@ -387,155 +392,351 @@ function renderMatrix() {
 /* Холст */
 
 const pan = { x: 20, y: 20 };
-let linkMode = false, linkFrom = null;
-const CARD_W = 170, CARD_H = 90;
+let zoom = 1, linkMode = false, linkFrom = null, selLink = null, canvasId = ui.canvas || null;
+const HEX = /^#[0-9a-f]{6}$/i;
+const IMG_RE = /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/;
+const MAX_IMG = 45000; // сервер принимает до ~60 КБ на запись
 
-function drawLinks(svg, onCanvas) {
+function saveUI() { localStorage.setItem("my-notes-ui", JSON.stringify(ui)); }
+const liveCanvases = function () { return db.canvases.filter(function (c) { return !c.deleted; }); };
+const noteOf = function (b) { return db.notes.find(function (n) { return n.id === b.ref && !n.deleted; }); };
+
+// Карточки старого холста (положение хранилось в заметках) переносим в новый формат
+function migrateCanvas() {
+    const old = db.notes.filter(function (n) { return !n.deleted && n.cx != null && n.cy != null; });
+    if (!old.length) return;
+    const now = Date.now(), ids = new Set(old.map(function (n) { return n.id; }));
+    if (!db.canvases.some(function (c) { return c.id === "canvas-main"; })) {
+        db.canvases.push({ id: "canvas-main", name: "Холст 1", updatedAt: now, deleted: false, dirty: true });
+    }
+    old.forEach(function (n) {
+        const id = "mig-" + n.id;
+        if (!db.blocks.some(function (b) { return b.id === id; })) {
+            db.blocks.push({
+                id: id, canvasId: "canvas-main", type: "note", ref: n.id, text: "", src: "",
+                x: n.cx, y: n.cy, updatedAt: now, deleted: false, dirty: true,
+                links: (n.links || []).filter(function (t) { return ids.has(t); })
+                    .map(function (t) { return { to: "mig-" + t, color: null }; })
+            });
+        }
+        n.cx = null; n.cy = null; n.links = [];
+    });
+    persist();
+}
+migrateCanvas();
+
+function curCanvas() {
+    let c = liveCanvases().find(function (x) { return x.id === canvasId; }) || liveCanvases()[0];
+    if (!c) {
+        c = { id: crypto.randomUUID(), name: "Холст 1", updatedAt: Date.now(), deleted: false, dirty: true };
+        db.canvases.push(c);
+        save();
+    }
+    canvasId = c.id;
+    return c;
+}
+
+function setTransform() {
+    $("plane").style.transform = "translate(" + pan.x + "px," + pan.y + "px) scale(" + zoom + ")";
+    $("zoom-label").textContent = Math.round(zoom * 100) + "%";
+}
+
+function zoomAt(factor, px, py) {
+    const nz = Math.min(2.5, Math.max(0.3, zoom * factor));
+    pan.x = px - (px - pan.x) * (nz / zoom);
+    pan.y = py - (py - pan.y) * (nz / zoom);
+    zoom = nz;
+    setTransform();
+}
+
+function addBlock(type, props) {
+    const c = curCanvas();
+    db.blocks.push(Object.assign({
+        id: crypto.randomUUID(), canvasId: c.id, type: type, ref: null, text: "", src: "",
+        x: Math.round((40 - pan.x) / zoom + Math.random() * 60), y: Math.round((40 - pan.y) / zoom + Math.random() * 60),
+        links: [], updatedAt: Date.now(), deleted: false, dirty: true
+    }, props));
+    save();
+    renderCanvas();
+}
+
+// Фото уменьшаем в браузере, чтобы оно поместилось в синхронизацию
+function readImage(file, done) {
+    const reader = new FileReader();
+    reader.onload = function () {
+        const img = new Image();
+        img.onload = function () {
+            let scale = Math.min(1, 420 / Math.max(img.width, img.height)), q = 0.7, out;
+            do {
+                const c = document.createElement("canvas");
+                c.width = Math.max(1, Math.round(img.width * scale));
+                c.height = Math.max(1, Math.round(img.height * scale));
+                c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+                out = c.toDataURL("image/jpeg", q);
+                q -= 0.1; scale *= 0.85;
+            } while (out.length > MAX_IMG && q > 0.15);
+            if (out.length > MAX_IMG) alert("Не удалось уменьшить фото до нужного размера."); else done(out);
+        };
+        img.onerror = function () { alert("Не удалось открыть изображение."); };
+        img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+}
+
+function drawLinks(svg, blocks, els) {
     svg.replaceChildren();
-    onCanvas.forEach(function (a) {
-        (a.links || []).forEach(function (id) {
-            const b = onCanvas.find(function (x) { return x.id === id; });
-            if (!b) return;
+    const center = function (b) { const e = els[b.id]; return [b.x + e.offsetWidth / 2, b.y + e.offsetHeight / 2]; };
+    blocks.forEach(function (a) {
+        (a.links || []).forEach(function (lk) {
+            const t = blocks.find(function (x) { return x.id === lk.to; });
+            if (!t || !els[a.id] || !els[t.id]) return;
+            const p = center(a), q = center(t);
             const make = function (cls) {
                 const l = document.createElementNS("http://www.w3.org/2000/svg", "line");
                 l.setAttribute("class", cls);
-                l.setAttribute("x1", a.cx + CARD_W / 2);
-                l.setAttribute("y1", a.cy + CARD_H / 2);
-                l.setAttribute("x2", b.cx + CARD_W / 2);
-                l.setAttribute("y2", b.cy + CARD_H / 2);
+                l.setAttribute("x1", p[0]); l.setAttribute("y1", p[1]);
+                l.setAttribute("x2", q[0]); l.setAttribute("y2", q[1]);
                 return l;
             };
+            const sel = selLink && selLink.from === a.id && selLink.to === lk.to;
+            const vis = make("vis" + (sel ? " sel" : ""));
+            if (HEX.test(lk.color || "")) vis.style.stroke = lk.color;
             const hit = make("hit"); // широкая невидимая линия, чтобы удобно попадать
-            hit.addEventListener("click", function () {
-                if (!confirm("Удалить связь?")) return;
-                a.links = a.links.filter(function (x) { return x !== id; });
-                touch(a);
-                save();
-                renderCanvas();
-            });
-            svg.append(make("vis"), hit);
+            hit.addEventListener("click", function () { selLink = { from: a.id, to: lk.to }; renderCanvas(); });
+            svg.append(vis, hit);
         });
     });
 }
 
-function pickLink(n) {
-    if (!linkFrom) { linkFrom = n.id; }
-    else if (linkFrom !== n.id) {
-        const a = db.notes.find(function (x) { return x.id === linkFrom; });
-        if (a && !(a.links || []).includes(n.id)) { a.links = (a.links || []).concat(n.id); touch(a); save(); }
+function pickLink(b) {
+    if (!linkFrom) { linkFrom = b.id; }
+    else if (linkFrom !== b.id) {
+        const a = db.blocks.find(function (x) { return x.id === linkFrom; });
+        if (a && !(a.links || []).some(function (l) { return l.to === b.id; })) {
+            a.links = (a.links || []).concat({ to: b.id, color: null });
+            touch(a);
+            save();
+        }
         linkFrom = null;
     } else { linkFrom = null; }
     renderCanvas();
 }
 
-function renderCanvas() {
-    const plane = $("plane");
-    plane.replaceChildren();
-    plane.style.transform = "translate(" + pan.x + "px," + pan.y + "px)";
-    const live = db.notes.filter(function (n) { return !n.deleted; });
-    const onCanvas = live.filter(function (n) { return n.cx != null && n.cy != null; });
+function selectedLink() {
+    if (!selLink) return null;
+    const a = db.blocks.find(function (b) { return b.id === selLink.from && !b.deleted; });
+    const l = a && (a.links || []).find(function (x) { return x.to === selLink.to; });
+    return l ? { a: a, l: l } : null;
+}
 
+function renderCanvas() {
+    const active = document.activeElement;
+    if (active && active.tagName === "TEXTAREA" && $("plane").contains(active)) return; // не мешаем печатать
+
+    const c = curCanvas();
+    const sel = $("canvas-select");
+    sel.replaceChildren();
+    liveCanvases().forEach(function (x) { const o = el("option", "", x.name); o.value = x.id; sel.append(o); });
+    sel.value = c.id;
+
+    const blocks = db.blocks.filter(function (b) {
+        return !b.deleted && b.canvasId === c.id && (b.type !== "note" || noteOf(b));
+    });
+    const used = new Set(blocks.filter(function (b) { return b.type === "note"; }).map(function (b) { return b.ref; }));
     const add = $("canvas-add");
     add.replaceChildren();
-    const first = el("option", "", "Добавить заметку на холст…");
+    const first = el("option", "", "Добавить заметку…");
     first.value = "";
     add.append(first);
-    live.filter(function (n) { return n.cx == null; }).forEach(function (n) {
+    db.notes.filter(function (n) { return !n.deleted && !used.has(n.id); }).forEach(function (n) {
         const o = el("option", "", n.title || "Без названия");
         o.value = n.id;
         add.append(o);
     });
     $("link-mode").classList.toggle("on", linkMode);
 
+    const s = selectedLink();
+    if (!s) selLink = null;
+    $("link-bar").hidden = !s;
+    $("link-color").value = s && HEX.test(s.l.color || "") ? s.l.color : (settings.accent || "#315efb");
+
+    const plane = $("plane");
+    plane.replaceChildren();
+    setTransform();
     const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
     svg.setAttribute("class", "links");
     plane.append(svg);
+    const els = {};
 
-    onCanvas.forEach(function (n) {
-        const c = el("div", "card" + (linkFrom === n.id ? " picked" : ""));
-        c.style.left = n.cx + "px";
-        c.style.top = n.cy + "px";
+    blocks.forEach(function (b) {
+        const card = el("div", "card " + b.type + (linkFrom === b.id ? " picked" : ""));
+        card.style.left = b.x + "px";
+        card.style.top = b.y + "px";
+        els[b.id] = card;
+
         const bar = el("div", "card-bar");
-        const open = el("button", "icon mini", "↗");
-        open.title = "Открыть";
-        open.addEventListener("click", function () { openNote(n.id); });
+        if (b.type === "note") {
+            const open = el("button", "icon mini", "↗");
+            open.title = "Открыть заметку";
+            open.addEventListener("click", function () { openNote(b.ref); });
+            bar.append(open);
+        }
         const del = el("button", "icon mini", "✕");
         del.title = "Убрать с холста";
-        del.addEventListener("click", function () {
-            n.cx = null; n.cy = null; n.links = [];
-            touch(n);
-            save();
-            renderCanvas();
-        });
-        bar.append(open, del);
-        c.append(bar, el("strong", "", n.title || "Без названия"), el("p", "", plain(toHTML(n)).slice(0, 90)));
+        del.addEventListener("click", function () { tombstone(b); save(); renderCanvas(); });
+        bar.append(del);
+        card.append(bar);
 
-        c.addEventListener("pointerdown", function (e) {
-            if (e.target.closest("button")) return;
+        if (b.type === "note") {
+            const n = noteOf(b);
+            card.append(el("strong", "", n.title || "Без названия"), el("p", "", plain(toHTML(n)).slice(0, 90)));
+        } else if (b.type === "text") {
+            const ta = document.createElement("textarea");
+            ta.maxLength = 2000;
+            ta.placeholder = "Текст…";
+            ta.value = b.text;
+            let tt = null;
+            ta.addEventListener("input", function () {
+                b.text = ta.value;
+                touch(b);
+                clearTimeout(tt);
+                tt = setTimeout(save, 500);
+            });
+            card.append(ta);
+        } else if (IMG_RE.test(b.src)) {
+            const im = document.createElement("img");
+            im.src = b.src;
+            im.alt = "";
+            im.draggable = false;
+            card.append(im);
+        }
+
+        card.addEventListener("pointerdown", function (e) {
+            if (e.target.closest("button, textarea")) return;
             e.stopPropagation();
-            if (linkMode) { pickLink(n); return; }
-            const sx = e.clientX, sy = e.clientY, ox = n.cx, oy = n.cy;
+            if (linkMode) { pickLink(b); return; }
+            const sx = e.clientX, sy = e.clientY, ox = b.x, oy = b.y;
             let moved = false;
-            c.setPointerCapture(e.pointerId);
+            card.setPointerCapture(e.pointerId);
             const move = function (ev) {
                 moved = true;
-                n.cx = Math.round(ox + ev.clientX - sx);
-                n.cy = Math.round(oy + ev.clientY - sy);
-                c.style.left = n.cx + "px";
-                c.style.top = n.cy + "px";
-                drawLinks(svg, onCanvas);
+                b.x = Math.round(ox + (ev.clientX - sx) / zoom);
+                b.y = Math.round(oy + (ev.clientY - sy) / zoom);
+                card.style.left = b.x + "px";
+                card.style.top = b.y + "px";
+                drawLinks(svg, blocks, els);
             };
             const up = function () {
-                c.removeEventListener("pointermove", move);
-                c.removeEventListener("pointerup", up);
-                c.removeEventListener("pointercancel", up);
-                if (moved) { touch(n); save(); }
+                card.removeEventListener("pointermove", move);
+                card.removeEventListener("pointerup", up);
+                card.removeEventListener("pointercancel", up);
+                if (moved) { touch(b); save(); }
             };
-            c.addEventListener("pointermove", move);
-            c.addEventListener("pointerup", up);
-            c.addEventListener("pointercancel", up);
+            card.addEventListener("pointermove", move);
+            card.addEventListener("pointerup", up);
+            card.addEventListener("pointercancel", up);
         });
-        plane.append(c);
+        plane.append(card);
     });
-    drawLinks(svg, onCanvas);
+    drawLinks(svg, blocks, els);
 }
 
+// Панель инструментов холста
 $("canvas-add").addEventListener("change", function () {
-    const n = db.notes.find(function (x) { return x.id === $("canvas-add").value && !x.deleted; });
-    if (!n) return;
-    n.cx = Math.round(-pan.x + 30 + Math.random() * 80);
-    n.cy = Math.round(-pan.y + 30 + Math.random() * 80);
-    touch(n);
+    const id = $("canvas-add").value;
+    if (id) addBlock("note", { ref: id });
+});
+$("canvas-text").addEventListener("click", function () { addBlock("text", {}); });
+$("canvas-img-btn").addEventListener("click", function () { $("canvas-img").click(); });
+$("canvas-img").addEventListener("change", function () {
+    const file = $("canvas-img").files[0];
+    $("canvas-img").value = "";
+    if (file && file.type.startsWith("image/") && file.size < 15 * 1024 * 1024) {
+        readImage(file, function (src) { addBlock("image", { src: src }); });
+    }
+});
+$("link-mode").addEventListener("click", function () { linkMode = !linkMode; linkFrom = null; renderCanvas(); });
+
+$("link-color").addEventListener("change", function () {
+    const s = selectedLink();
+    if (!s) return;
+    s.l.color = $("link-color").value;
+    touch(s.a);
+    save();
+    renderCanvas();
+});
+$("link-del").addEventListener("click", function () {
+    const s = selectedLink();
+    if (s) { s.a.links = s.a.links.filter(function (x) { return x !== s.l; }); touch(s.a); save(); }
+    selLink = null;
+    renderCanvas();
+});
+$("link-done").addEventListener("click", function () { selLink = null; renderCanvas(); });
+
+// Несколько холстов
+$("canvas-select").addEventListener("change", function () {
+    canvasId = $("canvas-select").value;
+    ui.canvas = canvasId;
+    saveUI();
+    selLink = null; linkFrom = null;
+    renderCanvas();
+});
+$("canvas-new").addEventListener("click", function () {
+    const name = (prompt("Название холста") || "").trim().slice(0, MAX_FOLDER);
+    if (!name) return;
+    const c = { id: crypto.randomUUID(), name: name, updatedAt: Date.now(), deleted: false, dirty: true };
+    db.canvases.push(c);
+    canvasId = ui.canvas = c.id;
+    saveUI();
+    save();
+    renderCanvas();
+});
+$("canvas-rename").addEventListener("click", function () {
+    const c = curCanvas();
+    const name = (prompt("Новое название", c.name) || "").trim().slice(0, MAX_FOLDER);
+    if (!name) return;
+    c.name = name;
+    touch(c);
+    save();
+    renderCanvas();
+});
+$("canvas-del").addEventListener("click", function () {
+    const c = curCanvas();
+    if (!confirm("Удалить холст «" + c.name + "»? Сами заметки останутся.")) return;
+    db.blocks.forEach(function (b) { if (b.canvasId === c.id && !b.deleted) tombstone(b); });
+    tombstone(c);
+    canvasId = ui.canvas = null;
+    saveUI();
     save();
     renderCanvas();
 });
 
-$("link-mode").addEventListener("click", function () {
-    linkMode = !linkMode;
-    linkFrom = null;
-    renderCanvas();
-});
+// Масштаб: кнопки и колесо мыши
+const canvasEl = $("canvas");
+const zoomCenter = function (f) { zoomAt(f, canvasEl.clientWidth / 2, canvasEl.clientHeight / 2); };
+$("zoom-in").addEventListener("click", function () { zoomCenter(1.2); });
+$("zoom-out").addEventListener("click", function () { zoomCenter(1 / 1.2); });
+$("zoom-reset").addEventListener("click", function () { zoom = 1; pan.x = 20; pan.y = 20; setTransform(); });
+canvasEl.addEventListener("wheel", function (e) {
+    e.preventDefault();
+    const r = canvasEl.getBoundingClientRect();
+    zoomAt(e.deltaY < 0 ? 1.1 : 1 / 1.1, e.clientX - r.left, e.clientY - r.top);
+}, { passive: false });
 
-// Перетаскивание самого холста
-$("canvas").addEventListener("pointerdown", function (e) {
-    // Двигаем холст только за пустое место, иначе пропадают клики по кнопкам и линиям
-    if (e.target !== $("canvas") && e.target !== $("plane")) return;
+// Перетаскивание самого холста (только за пустое место)
+canvasEl.addEventListener("pointerdown", function (e) {
+    if (e.target !== canvasEl && e.target !== $("plane")) return;
     const sx = e.clientX, sy = e.clientY, ox = pan.x, oy = pan.y;
-    const canvas = $("canvas");
-    canvas.setPointerCapture(e.pointerId);
-    const move = function (ev) {
-        pan.x = ox + ev.clientX - sx;
-        pan.y = oy + ev.clientY - sy;
-        $("plane").style.transform = "translate(" + pan.x + "px," + pan.y + "px)";
-    };
+    canvasEl.setPointerCapture(e.pointerId);
+    const move = function (ev) { pan.x = ox + ev.clientX - sx; pan.y = oy + ev.clientY - sy; setTransform(); };
     const up = function () {
-        canvas.removeEventListener("pointermove", move);
-        canvas.removeEventListener("pointerup", up);
-        canvas.removeEventListener("pointercancel", up);
+        canvasEl.removeEventListener("pointermove", move);
+        canvasEl.removeEventListener("pointerup", up);
+        canvasEl.removeEventListener("pointercancel", up);
     };
-    canvas.addEventListener("pointermove", move);
-    canvas.addEventListener("pointerup", up);
-    canvas.addEventListener("pointercancel", up);
+    canvasEl.addEventListener("pointermove", move);
+    canvasEl.addEventListener("pointerup", up);
+    canvasEl.addEventListener("pointercancel", up);
 });
 
 /* Общая отрисовка */
@@ -686,30 +887,57 @@ if (window.supabase && cfg.supabaseUrl && cfg.supabaseKey) {
 
 function setStatus(text) { statusEl.textContent = text; }
 
+function allItems() {
+    return [].concat(
+        db.folders.map(function (x) { return ["folder", x]; }),
+        db.notes.map(function (x) { return ["note", x]; }),
+        db.canvases.map(function (x) { return ["canvas", x]; }),
+        db.blocks.map(function (x) { return ["block", x]; })
+    );
+}
+
 function toRow(kind, item) {
-    return {
-        user_id: user.id, id: item.id, kind: kind,
-        data: kind === "note"
-            ? { title: item.title, text: item.text, folderId: item.folderId, rich: !!item.rich, quad: item.quad == null ? null : item.quad, cx: item.cx == null ? null : item.cx, cy: item.cy == null ? null : item.cy, links: item.links || [] }
-            : { name: item.name },
-        updated_at: item.updatedAt, deleted: !!item.deleted
-    };
+    const data = {
+        folder: { name: item.name },
+        canvas: { name: item.name },
+        note: { title: item.title, text: item.text, folderId: item.folderId, rich: !!item.rich, quad: item.quad == null ? null : item.quad },
+        block: { canvasId: item.canvasId, type: item.type, ref: item.ref, text: item.text, src: item.src, x: item.x, y: item.y, links: item.links || [] }
+    }[kind];
+    return { user_id: user.id, id: item.id, kind: kind, data: data, updated_at: item.updatedAt, deleted: !!item.deleted };
 }
 
 // Данные с сервера не доверенные: приводим типы и обрезаем длину
 function applyRemote(row) {
     if (!ID_RE.test(String(row.id))) return;
-    const list = row.kind === "folder" ? db.folders : db.notes;
+    const lists = { folder: db.folders, note: db.notes, canvas: db.canvases, block: db.blocks };
+    const list = lists[row.kind];
+    if (!list) return;
     const local = list.find(function (x) { return x.id === row.id; });
     if (local && local.updatedAt >= row.updated_at) return; // побеждает более новая версия
 
     const d = row.data || {};
-    const item = row.kind === "folder"
-        ? { id: row.id, name: String(d.name || "").slice(0, MAX_FOLDER) }
-        : { id: row.id, title: String(d.title || "").slice(0, MAX_TITLE), text: String(d.text || "").slice(0, MAX_TEXT),
-            folderId: typeof d.folderId === "string" && ID_RE.test(d.folderId) ? d.folderId : null, ...extras(d) };
-    Object.assign(item, { updatedAt: Number(row.updated_at), deleted: !!row.deleted, dirty: false });
-
+    const idOk = function (v) { return typeof v === "string" && ID_RE.test(v); };
+    const num = function (v) { return typeof v === "number" && isFinite(v) ? Math.round(v) : 0; };
+    let item;
+    if (row.kind === "folder" || row.kind === "canvas") {
+        item = { name: String(d.name || "").slice(0, MAX_FOLDER) };
+    } else if (row.kind === "note") {
+        item = Object.assign({ title: String(d.title || "").slice(0, MAX_TITLE), text: String(d.text || "").slice(0, MAX_TEXT),
+            folderId: idOk(d.folderId) ? d.folderId : null }, extras(d));
+    } else {
+        item = {
+            canvasId: idOk(d.canvasId) ? d.canvasId : "",
+            type: ["note", "text", "image"].includes(d.type) ? d.type : "text",
+            ref: idOk(d.ref) ? d.ref : null,
+            text: String(d.text || "").slice(0, 2000),
+            src: typeof d.src === "string" && d.src.length <= MAX_IMG && IMG_RE.test(d.src) ? d.src : "",
+            x: num(d.x), y: num(d.y),
+            links: Array.isArray(d.links)
+                ? d.links.filter(function (l) { return l && idOk(l.to); }).slice(0, 50)
+                    .map(function (l) { return { to: l.to, color: HEX.test(l.color || "") ? l.color : null }; }) : []
+        };
+    }
+    Object.assign(item, { id: row.id, updatedAt: Number(row.updated_at), deleted: !!row.deleted, dirty: false });
     if (local) Object.assign(local, item); else list.push(item);
 }
 
@@ -730,9 +958,7 @@ async function pull() {
 }
 
 async function push() {
-    const dirty = db.folders.map(function (f) { return ["folder", f]; })
-        .concat(db.notes.map(function (n) { return ["note", n]; }))
-        .filter(function (pair) { return pair[1].dirty; });
+    const dirty = allItems().filter(function (pair) { return pair[1].dirty; });
     if (!dirty.length) return;
 
     const versions = dirty.map(function (p) { return p[1].updatedAt; });
@@ -776,7 +1002,7 @@ function setUser(u) {
     if (!u) { setStatus(sb ? "Не выполнен вход" : ""); return; }
 
     // Если на устройстве данные другого аккаунта, не смешиваем их
-    if (db.owner && db.owner !== u.id) db = { notes: [], folders: [], lastPull: null, owner: null };
+    if (db.owner && db.owner !== u.id) db = ensure({ notes: [], folders: [], lastPull: null, owner: null });
     db.owner = u.id;
     persist();
     render();
@@ -814,7 +1040,7 @@ if (!sb) {
     $("logout").addEventListener("click", async function () {
         await sb.auth.signOut();
         if (confirm("Удалить заметки с этого устройства? В облаке они сохранятся.")) {
-            db = { notes: [], folders: [], lastPull: null, owner: null };
+            db = ensure({ notes: [], folders: [], lastPull: null, owner: null });
             persist();
             render();
         }
