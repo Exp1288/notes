@@ -145,3 +145,6 @@ button.secondary { background: transparent; color: var(--text); border: 1px soli
 
 /* Атрибут hidden должен скрывать элемент, даже если у него задан display */
 [hidden] { display: none !important; }
+
+.links .vis { stroke: var(--accent); stroke-width: 3; pointer-events: none; }
+.links .hit { stroke: transparent; stroke-width: 18; pointer-events: stroke; cursor: pointer; }

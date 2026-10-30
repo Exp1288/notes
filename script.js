@@ -396,19 +396,24 @@ function drawLinks(svg, onCanvas) {
         (a.links || []).forEach(function (id) {
             const b = onCanvas.find(function (x) { return x.id === id; });
             if (!b) return;
-            const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
-            line.setAttribute("x1", a.cx + CARD_W / 2);
-            line.setAttribute("y1", a.cy + CARD_H / 2);
-            line.setAttribute("x2", b.cx + CARD_W / 2);
-            line.setAttribute("y2", b.cy + CARD_H / 2);
-            line.addEventListener("click", function () {
+            const make = function (cls) {
+                const l = document.createElementNS("http://www.w3.org/2000/svg", "line");
+                l.setAttribute("class", cls);
+                l.setAttribute("x1", a.cx + CARD_W / 2);
+                l.setAttribute("y1", a.cy + CARD_H / 2);
+                l.setAttribute("x2", b.cx + CARD_W / 2);
+                l.setAttribute("y2", b.cy + CARD_H / 2);
+                return l;
+            };
+            const hit = make("hit"); // широкая невидимая линия, чтобы удобно попадать
+            hit.addEventListener("click", function () {
                 if (!confirm("Удалить связь?")) return;
                 a.links = a.links.filter(function (x) { return x !== id; });
                 touch(a);
                 save();
                 renderCanvas();
             });
-            svg.append(line);
+            svg.append(make("vis"), hit);
         });
     });
 }
@@ -513,6 +518,8 @@ $("link-mode").addEventListener("click", function () {
 
 // Перетаскивание самого холста
 $("canvas").addEventListener("pointerdown", function (e) {
+    // Двигаем холст только за пустое место, иначе пропадают клики по кнопкам и линиям
+    if (e.target !== $("canvas") && e.target !== $("plane")) return;
     const sx = e.clientX, sy = e.clientY, ox = pan.x, oy = pan.y;
     const canvas = $("canvas");
     canvas.setPointerCapture(e.pointerId);
