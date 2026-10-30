@@ -142,3 +142,6 @@ button.secondary { background: transparent; color: var(--text); border: 1px soli
 .card.picked { outline: 2px solid var(--accent); }
 .card p { margin: 4px 0 0; font-size: .8rem; color: var(--muted); }
 .card-bar { display: flex; justify-content: flex-end; gap: 4px; margin-bottom: 4px; }
+
+/* Атрибут hidden должен скрывать элемент, даже если у него задан display */
+[hidden] { display: none !important; }
