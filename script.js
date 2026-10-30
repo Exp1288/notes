@@ -67,11 +67,62 @@ function folderOf(note) {
 
 /* ---------- Отрисовка ---------- */
 
+const ui = readJSON("my-notes-ui") || {};
+if (!Array.isArray(ui.closed)) ui.closed = [];
+const layoutEl = $("layout");
+const editorEl = $("note-body");
+const QUADS = ["1. Срочно и важно", "2. Важно, не срочно", "3. Срочно, не важно", "4. Не срочно и не важно"];
+const FACES = ["Arial", "Georgia", "Courier New", "Times New Roman", "Verdana", "Trebuchet MS"];
+const TAGS = ["B", "STRONG", "I", "EM", "U", "S", "BR", "DIV", "P", "SPAN", "FONT", "UL", "OL", "LI"];
+let openId = null, view = "editor", loadedId = null, loadedVer = 0;
+
 function el(tag, cls, text) {
     const node = document.createElement(tag);
     if (cls) node.className = cls;
     if (text !== undefined) node.textContent = text;
     return node;
+}
+
+// Оставляем только безопасное форматирование: жирный, курсив, размер и шрифт
+function sanitize(html) {
+    const doc = new DOMParser().parseFromString(String(html), "text/html");
+    (function walk(node) {
+        Array.from(node.childNodes).forEach(function (ch) {
+            if (ch.nodeType === 3) return;
+            if (ch.nodeType !== 1 || ["SCRIPT", "STYLE", "IFRAME", "OBJECT", "EMBED", "TEMPLATE"].includes(ch.tagName)) {
+                ch.remove();
+                return;
+            }
+            walk(ch);
+            if (!TAGS.includes(ch.tagName)) { ch.replaceWith(...ch.childNodes); return; }
+            Array.from(ch.attributes).forEach(function (a) {
+                const ok = ch.tagName === "FONT" &&
+                    ((a.name === "size" && /^[1-7]$/.test(a.value)) || (a.name === "face" && FACES.includes(a.value)));
+                if (!ok) ch.removeAttribute(a.name);
+            });
+        });
+    })(doc.body);
+    return doc.body.innerHTML;
+}
+
+function plain(html) { return new DOMParser().parseFromString(html, "text/html").body.textContent; }
+
+function toHTML(note) {
+    if (note.rich) return sanitize(note.text);
+    return sanitize(note.text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/\n/g, "<br>"));
+}
+
+// Проверка дополнительных полей заметки (из файла или с сервера)
+function extras(d) {
+    const num = function (v) { return typeof v === "number" && isFinite(v) ? Math.round(v) : null; };
+    const x = num(d.cx), y = num(d.cy), onCanvas = x !== null && y !== null;
+    return {
+        rich: !!d.rich,
+        quad: Number.isInteger(d.quad) && d.quad >= 0 && d.quad <= 3 ? d.quad : null,
+        cx: onCanvas ? x : null, cy: onCanvas ? y : null,
+        links: Array.isArray(d.links)
+            ? d.links.filter(function (id) { return typeof id === "string" && ID_RE.test(id); }).slice(0, 50) : []
+    };
 }
 
 function folderOptions(select, selected) {
@@ -87,91 +138,71 @@ function folderOptions(select, selected) {
     select.value = selected || "";
 }
 
-function chip(label, id, extra) {
-    const b = el("button", "chip" + (current === id ? " active" : "") + (extra || ""), label);
-    b.addEventListener("click", function () { current = id; render(); });
-    return b;
+const cur = function () { return db.notes.find(function (n) { return n.id === openId && !n.deleted; }); };
+
+function openNote(id) {
+    openId = id;
+    view = "editor";
+    if (matchMedia("(max-width:700px)").matches) layoutEl.classList.add("collapsed");
+    render();
 }
 
-function actionChip(label, handler) {
-    const b = el("button", "chip ghost", label);
-    b.addEventListener("click", handler);
-    return b;
+function newNote(title) {
+    const n = {
+        id: crypto.randomUUID(), title: title || "", text: "", rich: true, folderId: null,
+        quad: null, cx: null, cy: null, links: [], updatedAt: Date.now(), deleted: false, dirty: true
+    };
+    db.notes.push(n);
+    save();
+    openNote(n.id);
 }
 
-function renderFolders() {
-    folderNav.replaceChildren(chip("Все", "all"), chip("Без папки", "none"));
-    liveFolders().forEach(function (f) { folderNav.append(chip("📁 " + f.name, f.id)); });
-    folderNav.append(actionChip("＋ Папка", addFolder));
+/* Папки и дерево заметок в боковой панели */
 
-    const open = liveFolders().find(function (f) { return f.id === current; });
-    if (open) {
-        folderNav.append(actionChip("Переименовать", function () { renameFolder(open); }));
-        folderNav.append(actionChip("Удалить папку", function () { deleteFolder(open); }));
-    }
+function folderSummary(f) {
+    const s = document.createElement("summary");
+    s.append(el("span", "", "📁 " + f.name));
+    const btn = function (label, title, fn) {
+        const b = el("button", "icon mini", label);
+        b.title = title;
+        b.addEventListener("click", function (e) { e.preventDefault(); e.stopPropagation(); fn(); });
+        return b;
+    };
+    s.append(btn("✎", "Переименовать", function () { renameFolder(f); }),
+             btn("✕", "Удалить папку", function () { deleteFolder(f); }));
+    return s;
 }
 
-function renderNotes() {
+function renderSide() {
     notesList.replaceChildren();
+    const live = db.notes.filter(function (n) { return !n.deleted; })
+        .sort(function (a, b) { return b.updatedAt - a.updatedAt; });
+    const item = function (n) {
+        const b = el("button", "note-item" + (n.id === openId ? " active" : ""), n.title || "Без названия");
+        b.addEventListener("click", function () { openNote(n.id); });
+        return b;
+    };
 
-    const shown = db.notes.filter(function (n) {
-        if (n.deleted) return false;
-        if (current === "all") return true;
-        return (folderOf(n) || "none") === current;
-    }).sort(function (a, b) { return b.updatedAt - a.updatedAt; });
-
-    if (shown.length === 0) {
-        notesList.append(el("p", "empty-message", "Пока заметок нет"));
-        return;
-    }
-
-    shown.forEach(function (note) {
-        const article = el("article", "note");
-        const heading = el("h3", "", note.title || "Без названия");
-        const paragraph = el("p", "", note.text);
-
-        const move = document.createElement("select");
-        move.setAttribute("aria-label", "Переместить в папку");
-        folderOptions(move, folderOf(note));
-        move.addEventListener("change", function () {
-            note.folderId = move.value || null;
-            touch(note);
-            save();
-            render();
+    liveFolders().forEach(function (f) {
+        const d = document.createElement("details");
+        d.open = !ui.closed.includes(f.id);
+        d.addEventListener("toggle", function () {
+            ui.closed = ui.closed.filter(function (x) { return x !== f.id; });
+            if (!d.open) ui.closed.push(f.id);
+            localStorage.setItem("my-notes-ui", JSON.stringify(ui));
         });
-
-        const del = el("button", "delete-button", "Удалить");
-        del.addEventListener("click", function () {
-            tombstone(note);
-            save();
-            render();
-        });
-
-        const actions = el("div", "note-actions");
-        actions.append(move, del);
-        article.append(heading, paragraph, actions);
-        notesList.append(article);
+        d.append(folderSummary(f));
+        live.filter(function (n) { return folderOf(n) === f.id; }).forEach(function (n) { d.append(item(n)); });
+        notesList.append(d);
     });
+    live.filter(function (n) { return !folderOf(n); }).forEach(function (n) { notesList.append(item(n)); });
+    if (!live.length) notesList.append(el("p", "empty-message", "Пока заметок нет"));
 }
-
-function render() {
-    if (current !== "all" && current !== "none" &&
-        !liveFolders().some(function (f) { return f.id === current; })) {
-        current = "all";
-    }
-    renderFolders();
-    folderOptions(folderSelect, current !== "all" && current !== "none" ? current : "");
-    renderNotes();
-}
-
-/* ---------- Папки и заметки ---------- */
 
 function addFolder() {
     const name = (prompt("Название папки") || "").trim().slice(0, MAX_FOLDER);
     if (!name) return;
-    const folder = { id: crypto.randomUUID(), name: name, updatedAt: Date.now(), deleted: false, dirty: true };
-    db.folders.push(folder);
-    current = folder.id;
+    db.folders.push({ id: crypto.randomUUID(), name: name, updatedAt: Date.now(), deleted: false, dirty: true });
     save();
     render();
 }
@@ -186,36 +217,334 @@ function renameFolder(folder) {
 }
 
 function deleteFolder(folder) {
-    if (!confirm("Удалить папку «" + folder.name + "»? Заметки из неё останутся в разделе «Без папки».")) return;
+    if (!confirm("Удалить папку «" + folder.name + "»? Заметки из неё останутся без папки.")) return;
     db.notes.forEach(function (n) {
         if (n.folderId === folder.id && !n.deleted) { n.folderId = null; touch(n); }
     });
     tombstone(folder);
-    current = "all";
     save();
     render();
 }
 
-addButton.addEventListener("click", function () {
-    const title = titleInput.value.trim().slice(0, MAX_TITLE);
-    const text = textInput.value.trim().slice(0, MAX_TEXT);
+/* Редактор заметки */
 
-    if (!title && !text) {
-        alert("Напиши хотя бы название или текст заметки.");
-        return;
+function renderEditor() {
+    const n = cur();
+    $("editor-empty").hidden = !!n;
+    $("editor").hidden = !n;
+    if (!n) return;
+    const typing = $("editor").contains(document.activeElement);
+    if (loadedId !== n.id || (n.updatedAt !== loadedVer && !typing)) {
+        titleInput.value = n.title;
+        editorEl.innerHTML = toHTML(n);
+        loadedId = n.id;
+        loadedVer = n.updatedAt;
     }
+    folderOptions(folderSelect, folderOf(n));
+    $("note-quad").value = n.quad == null ? "" : String(n.quad);
+}
 
-    db.notes.push({
-        id: crypto.randomUUID(), title: title, text: text,
-        folderId: folderSelect.value || null,
-        updatedAt: Date.now(), deleted: false, dirty: true
-    });
+let editTimer = null;
+function edit() {
+    const n = cur();
+    if (!n) return;
+    const html = sanitize(editorEl.innerHTML);
+    if (html.length > MAX_TEXT) { setStatus("Заметка слишком длинная и не сохранена"); return; }
+    n.title = titleInput.value.slice(0, MAX_TITLE);
+    n.text = html;
+    n.rich = true;
+    touch(n);
+    loadedVer = n.updatedAt;
+    clearTimeout(editTimer);
+    editTimer = setTimeout(function () { save(); renderSide(); }, 500);
+}
+
+titleInput.addEventListener("input", edit);
+editorEl.addEventListener("input", edit);
+editorEl.addEventListener("drop", function (e) { e.preventDefault(); });
+editorEl.addEventListener("paste", function (e) {
+    e.preventDefault(); // вставляем только текст, без чужого форматирования
+    document.execCommand("insertText", false, e.clipboardData.getData("text/plain"));
+});
+window.addEventListener("pagehide", persist);
+
+folderSelect.addEventListener("change", function () {
+    const n = cur();
+    if (!n) return;
+    n.folderId = folderSelect.value || null;
+    touch(n);
     save();
     render();
-
-    titleInput.value = "";
-    textInput.value = "";
 });
+
+$("note-quad").addEventListener("change", function () {
+    const n = cur();
+    if (n) setQuad(n, $("note-quad").value);
+});
+
+$("delete-note").addEventListener("click", function () {
+    const n = cur();
+    if (!n || !confirm("Удалить заметку?")) return;
+    tombstone(n);
+    openId = null;
+    save();
+    render();
+});
+
+// Панель форматирования
+let savedRange = null;
+document.addEventListener("selectionchange", function () {
+    const s = getSelection();
+    if (s.rangeCount && editorEl.contains(s.anchorNode)) savedRange = s.getRangeAt(0).cloneRange();
+});
+
+function fmt(cmd, value) {
+    editorEl.focus();
+    if (savedRange) {
+        const s = getSelection();
+        s.removeAllRanges();
+        s.addRange(savedRange);
+    }
+    document.execCommand("styleWithCSS", false, false);
+    document.execCommand(cmd, false, value);
+    edit();
+}
+
+document.querySelectorAll("[data-cmd]").forEach(function (b) {
+    b.addEventListener("mousedown", function (e) { e.preventDefault(); });
+    b.addEventListener("click", function () { fmt(b.dataset.cmd); });
+});
+$("fmt-size").addEventListener("change", function (e) { if (e.target.value) fmt("fontSize", e.target.value); e.target.value = ""; });
+$("fmt-font").addEventListener("change", function (e) { if (e.target.value) fmt("fontName", e.target.value); e.target.value = ""; });
+
+$("new-note").addEventListener("click", function () { newNote(""); });
+$("add-folder").addEventListener("click", addFolder);
+$("today-note").addEventListener("click", function () {
+    const title = new Date().toLocaleDateString("ru-RU");
+    const exists = db.notes.find(function (n) { return !n.deleted && n.title === title; });
+    if (exists) openNote(exists.id); else newNote(title);
+});
+
+["side-toggle", "side-open"].forEach(function (id) {
+    $(id).addEventListener("click", function () { layoutEl.classList.toggle("collapsed"); });
+});
+
+/* Квадрат Эйзенхауэра */
+
+function setQuad(n, value) {
+    n.quad = value === "" ? null : Number(value);
+    touch(n);
+    save();
+    render();
+}
+
+function dropZone(node, value) {
+    node.addEventListener("dragover", function (e) { e.preventDefault(); });
+    node.addEventListener("drop", function (e) {
+        e.preventDefault();
+        const id = e.dataTransfer.getData("text/plain");
+        const n = db.notes.find(function (x) { return x.id === id && !x.deleted; });
+        if (n) setQuad(n, value);
+    });
+}
+
+function quadItem(n) {
+    const d = el("div", "q-item");
+    d.draggable = true;
+    d.addEventListener("dragstart", function (e) { e.dataTransfer.setData("text/plain", n.id); });
+    const t = el("button", "link-btn", n.title || "Без названия");
+    t.addEventListener("click", function () { openNote(n.id); });
+    const s = document.createElement("select");
+    s.setAttribute("aria-label", "Квадрат");
+    [["", "Без квадрата"]].concat(QUADS.map(function (q, i) { return [String(i), q]; })).forEach(function (p) {
+        const o = el("option", "", p[1]);
+        o.value = p[0];
+        s.append(o);
+    });
+    s.value = n.quad == null ? "" : String(n.quad);
+    s.addEventListener("change", function () { setQuad(n, s.value); });
+    d.append(t, s);
+    return d;
+}
+
+function renderMatrix() {
+    const live = db.notes.filter(function (n) { return !n.deleted; });
+    const grid = $("matrix-grid");
+    grid.replaceChildren();
+    QUADS.forEach(function (name, i) {
+        const q = el("div", "quad q" + i);
+        q.append(el("h3", "", name));
+        live.filter(function (n) { return n.quad === i; }).forEach(function (n) { q.append(quadItem(n)); });
+        dropZone(q, String(i));
+        grid.append(q);
+    });
+    const pool = $("matrix-pool");
+    pool.replaceChildren();
+    live.filter(function (n) { return n.quad == null; }).forEach(function (n) { pool.append(quadItem(n)); });
+    dropZone(pool, "");
+}
+
+/* Холст */
+
+const pan = { x: 20, y: 20 };
+let linkMode = false, linkFrom = null;
+const CARD_W = 170, CARD_H = 90;
+
+function drawLinks(svg, onCanvas) {
+    svg.replaceChildren();
+    onCanvas.forEach(function (a) {
+        (a.links || []).forEach(function (id) {
+            const b = onCanvas.find(function (x) { return x.id === id; });
+            if (!b) return;
+            const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+            line.setAttribute("x1", a.cx + CARD_W / 2);
+            line.setAttribute("y1", a.cy + CARD_H / 2);
+            line.setAttribute("x2", b.cx + CARD_W / 2);
+            line.setAttribute("y2", b.cy + CARD_H / 2);
+            line.addEventListener("click", function () {
+                if (!confirm("Удалить связь?")) return;
+                a.links = a.links.filter(function (x) { return x !== id; });
+                touch(a);
+                save();
+                renderCanvas();
+            });
+            svg.append(line);
+        });
+    });
+}
+
+function pickLink(n) {
+    if (!linkFrom) { linkFrom = n.id; }
+    else if (linkFrom !== n.id) {
+        const a = db.notes.find(function (x) { return x.id === linkFrom; });
+        if (a && !(a.links || []).includes(n.id)) { a.links = (a.links || []).concat(n.id); touch(a); save(); }
+        linkFrom = null;
+    } else { linkFrom = null; }
+    renderCanvas();
+}
+
+function renderCanvas() {
+    const plane = $("plane");
+    plane.replaceChildren();
+    plane.style.transform = "translate(" + pan.x + "px," + pan.y + "px)";
+    const live = db.notes.filter(function (n) { return !n.deleted; });
+    const onCanvas = live.filter(function (n) { return n.cx != null && n.cy != null; });
+
+    const add = $("canvas-add");
+    add.replaceChildren();
+    const first = el("option", "", "Добавить заметку на холст…");
+    first.value = "";
+    add.append(first);
+    live.filter(function (n) { return n.cx == null; }).forEach(function (n) {
+        const o = el("option", "", n.title || "Без названия");
+        o.value = n.id;
+        add.append(o);
+    });
+    $("link-mode").classList.toggle("on", linkMode);
+
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("class", "links");
+    plane.append(svg);
+
+    onCanvas.forEach(function (n) {
+        const c = el("div", "card" + (linkFrom === n.id ? " picked" : ""));
+        c.style.left = n.cx + "px";
+        c.style.top = n.cy + "px";
+        const bar = el("div", "card-bar");
+        const open = el("button", "icon mini", "↗");
+        open.title = "Открыть";
+        open.addEventListener("click", function () { openNote(n.id); });
+        const del = el("button", "icon mini", "✕");
+        del.title = "Убрать с холста";
+        del.addEventListener("click", function () {
+            n.cx = null; n.cy = null; n.links = [];
+            touch(n);
+            save();
+            renderCanvas();
+        });
+        bar.append(open, del);
+        c.append(bar, el("strong", "", n.title || "Без названия"), el("p", "", plain(toHTML(n)).slice(0, 90)));
+
+        c.addEventListener("pointerdown", function (e) {
+            if (e.target.closest("button")) return;
+            e.stopPropagation();
+            if (linkMode) { pickLink(n); return; }
+            const sx = e.clientX, sy = e.clientY, ox = n.cx, oy = n.cy;
+            let moved = false;
+            c.setPointerCapture(e.pointerId);
+            const move = function (ev) {
+                moved = true;
+                n.cx = Math.round(ox + ev.clientX - sx);
+                n.cy = Math.round(oy + ev.clientY - sy);
+                c.style.left = n.cx + "px";
+                c.style.top = n.cy + "px";
+                drawLinks(svg, onCanvas);
+            };
+            const up = function () {
+                c.removeEventListener("pointermove", move);
+                c.removeEventListener("pointerup", up);
+                c.removeEventListener("pointercancel", up);
+                if (moved) { touch(n); save(); }
+            };
+            c.addEventListener("pointermove", move);
+            c.addEventListener("pointerup", up);
+            c.addEventListener("pointercancel", up);
+        });
+        plane.append(c);
+    });
+    drawLinks(svg, onCanvas);
+}
+
+$("canvas-add").addEventListener("change", function () {
+    const n = db.notes.find(function (x) { return x.id === $("canvas-add").value && !x.deleted; });
+    if (!n) return;
+    n.cx = Math.round(-pan.x + 30 + Math.random() * 80);
+    n.cy = Math.round(-pan.y + 30 + Math.random() * 80);
+    touch(n);
+    save();
+    renderCanvas();
+});
+
+$("link-mode").addEventListener("click", function () {
+    linkMode = !linkMode;
+    linkFrom = null;
+    renderCanvas();
+});
+
+// Перетаскивание самого холста
+$("canvas").addEventListener("pointerdown", function (e) {
+    const sx = e.clientX, sy = e.clientY, ox = pan.x, oy = pan.y;
+    const canvas = $("canvas");
+    canvas.setPointerCapture(e.pointerId);
+    const move = function (ev) {
+        pan.x = ox + ev.clientX - sx;
+        pan.y = oy + ev.clientY - sy;
+        $("plane").style.transform = "translate(" + pan.x + "px," + pan.y + "px)";
+    };
+    const up = function () {
+        canvas.removeEventListener("pointermove", move);
+        canvas.removeEventListener("pointerup", up);
+        canvas.removeEventListener("pointercancel", up);
+    };
+    canvas.addEventListener("pointermove", move);
+    canvas.addEventListener("pointerup", up);
+    canvas.addEventListener("pointercancel", up);
+});
+
+/* Общая отрисовка */
+
+document.querySelectorAll(".tab").forEach(function (b) {
+    b.addEventListener("click", function () { view = b.dataset.view; render(); });
+});
+
+function render() {
+    renderSide();
+    document.querySelectorAll(".tab").forEach(function (b) { b.classList.toggle("active", b.dataset.view === view); });
+    ["editor", "matrix", "canvas"].forEach(function (v) { $("view-" + v).hidden = v !== view; });
+    if (view === "editor") renderEditor();
+    else if (view === "matrix") renderMatrix();
+    else renderCanvas();
+}
 
 /* ---------- Экспорт / импорт ---------- */
 
@@ -224,7 +553,7 @@ $("export-notes").addEventListener("click", function () {
         version: 2,
         folders: liveFolders().map(function (f) { return { id: f.id, name: f.name }; }),
         notes: db.notes.filter(function (n) { return !n.deleted; }).map(function (n) {
-            return { id: n.id, title: n.title, text: n.text, folderId: folderOf(n) };
+            return Object.assign({ id: n.id, title: n.title, text: n.text, folderId: folderOf(n) }, extras(n));
         })
     };
     const blob = new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" });
@@ -254,7 +583,7 @@ function parseBackup(raw) {
         folders: folders.map(function (f) { return { id: f.id, name: f.name.slice(0, MAX_FOLDER) }; }),
         notes: notes.map(function (n) {
             return { id: n.id, title: n.title.slice(0, MAX_TITLE), text: n.text.slice(0, MAX_TEXT),
-                     folderId: folderIds.has(n.folderId) ? n.folderId : null };
+                     folderId: folderIds.has(n.folderId) ? n.folderId : null, ...extras(n) };
         })
     };
 }
@@ -354,7 +683,7 @@ function toRow(kind, item) {
     return {
         user_id: user.id, id: item.id, kind: kind,
         data: kind === "note"
-            ? { title: item.title, text: item.text, folderId: item.folderId }
+            ? { title: item.title, text: item.text, folderId: item.folderId, rich: !!item.rich, quad: item.quad == null ? null : item.quad, cx: item.cx == null ? null : item.cx, cy: item.cy == null ? null : item.cy, links: item.links || [] }
             : { name: item.name },
         updated_at: item.updatedAt, deleted: !!item.deleted
     };
@@ -371,7 +700,7 @@ function applyRemote(row) {
     const item = row.kind === "folder"
         ? { id: row.id, name: String(d.name || "").slice(0, MAX_FOLDER) }
         : { id: row.id, title: String(d.title || "").slice(0, MAX_TITLE), text: String(d.text || "").slice(0, MAX_TEXT),
-            folderId: typeof d.folderId === "string" && ID_RE.test(d.folderId) ? d.folderId : null };
+            folderId: typeof d.folderId === "string" && ID_RE.test(d.folderId) ? d.folderId : null, ...extras(d) };
     Object.assign(item, { updatedAt: Number(row.updated_at), deleted: !!row.deleted, dirty: false });
 
     if (local) Object.assign(local, item); else list.push(item);

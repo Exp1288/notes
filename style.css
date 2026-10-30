@@ -80,3 +80,65 @@ button.secondary { background: transparent; color: var(--text); border: 1px soli
 .empty-message { color: var(--muted); }
 
 @media (min-width: 600px) { .app { padding-top: 40px; } }
+
+/* ---------- Раскладка: боковая панель + рабочая область ---------- */
+.layout { display: grid; grid-template-columns: 290px 1fr; min-height: 100vh; }
+.layout.collapsed { grid-template-columns: 1fr; }
+.layout.collapsed .sidebar { display: none; }
+.layout:not(.collapsed) #side-open { display: none; }
+.sidebar { background: var(--card); border-right: 1px solid var(--border); padding: 14px; position: sticky; top: 0; height: 100vh; overflow-y: auto; }
+.sidebar .panel { background: var(--bg); margin-top: 16px; }
+.main { width: 100%; max-width: 900px; margin: 0 auto; padding: 18px; }
+.main header { align-items: center; justify-content: flex-start; margin-bottom: 14px; }
+.main h1 { margin: 0; font-size: 1.5rem; flex: 1; }
+.side-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+.side-btns { display: flex; gap: 4px; }
+.icon { padding: 6px 10px; background: transparent; color: var(--text); border: 1px solid var(--border); }
+.icon.mini { padding: 2px 6px; font-size: .8rem; }
+.note-item { display: block; width: 100%; text-align: left; background: transparent; color: var(--text); padding: 8px; margin: 2px 0; border-radius: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.note-item.active { background: var(--accent); color: #fff; }
+.sidebar details > .note-item { padding-left: 22px; }
+.sidebar summary { display: flex; gap: 6px; align-items: center; padding: 6px 0; cursor: pointer; }
+.sidebar summary span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sidebar .backup-controls { margin-top: 12px; }
+@media (max-width: 700px) {
+    .layout { grid-template-columns: 1fr; }
+    .sidebar { position: fixed; inset: 0; z-index: 5; height: 100%; }
+}
+
+.tabs { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
+.tab { background: var(--card); color: var(--text); border: 1px solid var(--border); }
+.tab.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+/* ---------- Редактор ---------- */
+.editor { display: flex; flex-direction: column; gap: 12px; }
+.meta-row, .toolbar { display: flex; gap: 8px; flex-wrap: wrap; }
+.meta-row select { flex: 1; min-width: 10rem; }
+.toolbar button { padding: 8px 14px; background: var(--card); color: var(--text); border: 1px solid var(--border); }
+.toolbar select { width: auto; padding: 8px; }
+.rich { min-height: 260px; padding: 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--card); overflow-wrap: anywhere; line-height: 1.5; }
+
+/* ---------- Квадрат Эйзенхауэра ---------- */
+.matrix { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+@media (max-width: 600px) { .matrix { grid-template-columns: 1fr; } }
+.quad { background: var(--card); border-radius: 12px; padding: 12px; min-height: 130px; border-top: 4px solid var(--border); }
+.quad h3 { margin: 0 0 6px; font-size: 1rem; }
+.q0 { border-top-color: #e5484d; } .q1 { border-top-color: var(--accent); }
+.q2 { border-top-color: #f5a524; } .q3 { border-top-color: #8b8f98; }
+.pool { min-height: 60px; }
+.q-item { display: flex; gap: 8px; align-items: center; justify-content: space-between; padding: 6px 8px; margin-top: 8px; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; }
+.q-item select { width: auto; max-width: 9rem; padding: 6px; }
+.link-btn { background: none; color: var(--text); padding: 4px; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ---------- Холст ---------- */
+.canvas-tools { margin-bottom: 8px; align-items: center; }
+.canvas-tools select { flex: 1; }
+#link-mode.on { background: var(--accent); color: #fff; }
+.canvas { position: relative; height: 62vh; min-height: 340px; overflow: hidden; border: 1px solid var(--border); border-radius: 12px; background-color: var(--card); background-image: radial-gradient(var(--border) 1px, transparent 1px); background-size: 20px 20px; touch-action: none; cursor: grab; }
+.plane { position: absolute; left: 0; top: 0; }
+.links { position: absolute; left: 0; top: 0; width: 1px; height: 1px; overflow: visible; pointer-events: none; }
+.links line { stroke: var(--accent); stroke-width: 3; pointer-events: stroke; cursor: pointer; }
+.card { position: absolute; width: 170px; min-height: 90px; padding: 8px 10px; background: var(--bg); border: 1px solid var(--border); border-radius: 10px; cursor: move; touch-action: none; user-select: none; overflow-wrap: anywhere; }
+.card.picked { outline: 2px solid var(--accent); }
+.card p { margin: 4px 0 0; font-size: .8rem; color: var(--muted); }
+.card-bar { display: flex; justify-content: flex-end; gap: 4px; margin-bottom: 4px; }

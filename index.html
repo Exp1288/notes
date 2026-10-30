@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self'; img-src 'self' data:; connect-src 'self' https://*.supabase.co; object-src 'none'; base-uri 'none'; form-action 'none'">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self' https://*.supabase.co; object-src 'none'; base-uri 'none'; form-action 'none'">
     <meta name="referrer" content="no-referrer">
     <meta name="theme-color" content="#ffffff">
     <link rel="manifest" href="manifest.json">
@@ -11,16 +11,19 @@
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <main class="app">
-        <header>
-            <div>
-                <h1>Мои заметки</h1>
-                <p>Все твои мысли в одном месте</p>
+    <div class="layout" id="layout">
+        <aside class="sidebar">
+            <div class="side-head">
+                <strong>Заметки</strong>
+                <span class="side-btns">
+                    <button id="new-note" class="icon" title="Новая заметка">＋</button>
+                    <button id="today-note" class="icon" title="Заметка за сегодня">📅</button>
+                    <button id="add-folder" class="icon" title="Новая папка">📁</button>
+                    <button id="side-toggle" class="icon" title="Свернуть панель">−</button>
+                </span>
             </div>
-            <span id="sync-status" class="hint" role="status"></span>
-        </header>
-
-        <details class="panel">
+            <div id="notes-list"></div>
+            <details class="panel">
             <summary>Настройки и аккаунт</summary>
             <div class="panel-body">
                 <h2>Внешний вид</h2>
@@ -61,29 +64,86 @@
                 <p id="auth-msg" class="hint"></p>
             </div>
         </details>
-
-        <nav id="folders" class="folders" aria-label="Папки"></nav>
-
-        <section class="note-form">
-            <input id="note-title" type="text" maxlength="200" placeholder="Название заметки">
-            <textarea id="note-text" maxlength="20000" placeholder="О чём ты хочешь написать?" rows="4"></textarea>
-            <select id="note-folder" aria-label="Папка"></select>
-            <button id="add-note">Добавить заметку</button>
             <div class="backup-controls">
-                <button id="export-notes" class="secondary">Экспорт заметок</button>
-                <button id="import-notes" class="secondary">Импорт заметок</button>
+                <button id="export-notes" class="secondary">Экспорт</button>
+                <button id="import-notes" class="secondary">Импорт</button>
                 <input id="import-file" type="file" accept=".json,application/json" hidden>
             </div>
-        </section>
+        </aside>
 
-        <section>
-            <h2>Мои записи</h2>
-            <div id="notes-list"></div>
-        </section>
-    </main>
+        <main class="main">
+            <header>
+                <button id="side-open" class="icon" title="Показать заметки">☰</button>
+                <h1>Мои заметки</h1>
+                <span id="sync-status" class="hint" role="status"></span>
+            </header>
+
+            <nav class="tabs">
+                <button class="tab active" data-view="editor">Заметка</button>
+                <button class="tab" data-view="matrix">Эйзенхауэр</button>
+                <button class="tab" data-view="canvas">Холст</button>
+            </nav>
+
+            <section id="view-editor">
+                <p id="editor-empty" class="empty-message">Выберите заметку слева или создайте новую кнопкой «＋».</p>
+                <div id="editor" class="editor" hidden>
+                    <input id="note-title" type="text" maxlength="200" placeholder="Название заметки">
+                    <div class="meta-row">
+                        <select id="note-folder" aria-label="Папка"></select>
+                        <select id="note-quad" aria-label="Квадрат Эйзенхауэра">
+                            <option value="">Не в матрице</option>
+                            <option value="0">1. Срочно и важно</option>
+                            <option value="1">2. Важно, не срочно</option>
+                            <option value="2">3. Срочно, не важно</option>
+                            <option value="3">4. Не срочно и не важно</option>
+                        </select>
+                    </div>
+                    <div class="toolbar">
+                        <button data-cmd="bold" title="Жирный"><b>Ж</b></button>
+                        <button data-cmd="italic" title="Курсив"><i>К</i></button>
+                        <button data-cmd="underline" title="Подчёркнутый"><u>Ч</u></button>
+                        <select id="fmt-size" aria-label="Размер">
+                            <option value="">Размер</option>
+                            <option value="2">Мелкий</option>
+                            <option value="3">Обычный</option>
+                            <option value="5">Крупный</option>
+                            <option value="7">Огромный</option>
+                        </select>
+                        <select id="fmt-font" aria-label="Шрифт">
+                            <option value="">Шрифт</option>
+                            <option>Arial</option>
+                            <option>Georgia</option>
+                            <option>Courier New</option>
+                            <option>Times New Roman</option>
+                            <option>Verdana</option>
+                            <option>Trebuchet MS</option>
+                        </select>
+                    </div>
+                    <div id="note-body" class="rich" contenteditable="true" role="textbox" aria-multiline="true" aria-label="Текст заметки"></div>
+                    <button id="delete-note" class="delete-button">Удалить заметку</button>
+                </div>
+            </section>
+
+            <section id="view-matrix" hidden>
+                <p class="hint">Перетаскивайте заметки между квадратами или выбирайте квадрат в списке.</p>
+                <div id="matrix-grid" class="matrix"></div>
+                <h2>Не распределены</h2>
+                <div id="matrix-pool" class="pool"></div>
+            </section>
+
+            <section id="view-canvas" hidden>
+                <div class="row canvas-tools">
+                    <select id="canvas-add" aria-label="Добавить на холст"></select>
+                    <button id="link-mode" class="secondary">Связать</button>
+                </div>
+                <p class="hint">Тяните карточки и сам холст. Режим «Связать»: нажмите две карточки подряд. Чтобы удалить связь, нажмите на линию.</p>
+                <div id="canvas" class="canvas"><div id="plane" class="plane"></div></div>
+            </section>
+        </main>
+    </div>
 
     <script src="config.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+    <script src="supabase.min.js"></script>
     <script src="script.js"></script>
 </body>
 </html>
