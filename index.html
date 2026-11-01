@@ -118,6 +118,13 @@
                             <option>Verdana</option>
                             <option>Trebuchet MS</option>
                         </select>
+                        <button id="note-img-btn" title="Вставить фото">🖼</button>
+                        <input id="note-img" type="file" accept="image/*" hidden>
+                    </div>
+                    <div id="img-bar" class="row img-bar" hidden>
+                        <span>Размер фото:</span>
+                        <input id="img-w" type="range" min="80" max="800" step="10" aria-label="Ширина фото">
+                        <button id="img-del" class="delete-button">Удалить фото</button>
                     </div>
                     <div id="note-body" class="rich" contenteditable="true" role="textbox" aria-multiline="true" aria-label="Текст заметки"></div>
                     <button id="delete-note" class="delete-button">Удалить заметку</button>

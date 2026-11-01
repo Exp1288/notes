@@ -80,7 +80,7 @@ const editorEl = $("note-body");
 const QUADS = ["1. Срочно и важно", "2. Важно, не срочно", "3. Срочно, не важно", "4. Не срочно и не важно"];
 const FACES = ["Arial", "Georgia", "Courier New", "Times New Roman", "Verdana", "Trebuchet MS"];
 const DAILY_FOLDER = "Дневник";
-const TAGS = ["B", "STRONG", "I", "EM", "U", "S", "BR", "DIV", "P", "SPAN", "FONT", "UL", "OL", "LI"];
+const TAGS = ["B", "STRONG", "I", "EM", "U", "S", "BR", "DIV", "P", "SPAN", "FONT", "IMG", "UL", "OL", "LI"];
 let openId = null, view = "editor", loadedId = null, loadedVer = 0;
 
 function el(tag, cls, text) {
@@ -100,11 +100,13 @@ function sanitize(html) {
                 ch.remove();
                 return;
             }
+            if (ch.tagName === "IMG" && !ID_RE.test(ch.getAttribute("data-pic") || "")) { ch.remove(); return; }
             walk(ch);
             if (!TAGS.includes(ch.tagName)) { ch.replaceWith(...ch.childNodes); return; }
             Array.from(ch.attributes).forEach(function (a) {
-                const ok = ch.tagName === "FONT" &&
-                    ((a.name === "size" && /^[1-7]$/.test(a.value)) || (a.name === "face" && FACES.includes(a.value)));
+                const ok = (ch.tagName === "FONT" &&
+                    ((a.name === "size" && /^[1-7]$/.test(a.value)) || (a.name === "face" && FACES.includes(a.value)))) ||
+                    (ch.tagName === "IMG" && ((a.name === "data-pic" && ID_RE.test(a.value)) || (a.name === "width" && /^\d{2,3}$/.test(a.value))));
                 if (!ok) ch.removeAttribute(a.name);
             });
         });
@@ -238,7 +240,10 @@ function renderEditor() {
         editorEl.innerHTML = toHTML(n);
         loadedId = n.id;
         loadedVer = n.updatedAt;
+        selImg = null;
+        $("img-bar").hidden = true;
     }
+    hydrate();
     folderOptions(folderSelect, folderOf(n));
     $("note-quad").value = n.quad == null ? "" : String(n.quad);
 }
@@ -284,6 +289,7 @@ $("note-quad").addEventListener("change", function () {
 $("delete-note").addEventListener("click", function () {
     const n = cur();
     if (!n || !confirm("Удалить заметку?")) return;
+    db.blocks.forEach(function (b) { if (b.type === "pic" && b.ref === n.id && !b.deleted) tombstone(b); });
     tombstone(n);
     openId = null;
     save();
@@ -315,6 +321,54 @@ document.querySelectorAll("[data-cmd]").forEach(function (b) {
 });
 $("fmt-size").addEventListener("change", function (e) { if (e.target.value) fmt("fontSize", e.target.value); e.target.value = ""; });
 $("fmt-font").addEventListener("change", function (e) { if (e.target.value) fmt("fontName", e.target.value); e.target.value = ""; });
+
+// Фото в заметках: картинка хранится отдельной записью, в тексте только ссылка на неё
+let selImg = null;
+
+function hydrate() {
+    editorEl.querySelectorAll("img[data-pic]").forEach(function (im) {
+        if (im.getAttribute("src")) return;
+        const p = db.blocks.find(function (b) { return b.id === im.getAttribute("data-pic") && b.type === "pic" && !b.deleted; });
+        if (p && IMG_RE.test(p.src)) im.src = p.src; else im.alt = "Фото ещё не загружено";
+    });
+}
+
+function pickImg(im) {
+    if (selImg) selImg.classList.remove("sel");
+    selImg = im;
+    $("img-bar").hidden = !im;
+    if (im) {
+        im.classList.add("sel");
+        $("img-w").value = im.getAttribute("width") || im.width || 300;
+    }
+}
+
+editorEl.addEventListener("click", function (e) { pickImg(e.target.tagName === "IMG" ? e.target : null); });
+$("img-w").addEventListener("input", function () {
+    if (selImg) { selImg.setAttribute("width", $("img-w").value); edit(); }
+});
+$("img-del").addEventListener("click", function () {
+    if (!selImg) return;
+    const pic = db.blocks.find(function (b) { return b.id === selImg.getAttribute("data-pic"); });
+    if (pic && !pic.deleted) tombstone(pic);
+    selImg.remove();
+    pickImg(null);
+    edit();
+});
+$("note-img-btn").addEventListener("mousedown", function (e) { e.preventDefault(); });
+$("note-img-btn").addEventListener("click", function () { $("note-img").click(); });
+$("note-img").addEventListener("change", function () {
+    const n = cur(), file = $("note-img").files[0];
+    $("note-img").value = "";
+    if (!n || !file || !file.type.startsWith("image/") || file.size > 15 * 1024 * 1024) return;
+    readImage(file, function (src) {
+        const pic = { id: crypto.randomUUID(), canvasId: "", type: "pic", ref: n.id, text: "", src: src, x: 0, y: 0,
+            w: null, h: null, links: [], updatedAt: Date.now(), deleted: false, dirty: true };
+        db.blocks.push(pic);
+        fmt("insertHTML", '<img data-pic="' + pic.id + '" src="' + src + '" width="300">');
+        save();
+    });
+});
 
 $("new-note").addEventListener("click", function () { newNote(""); });
 $("add-folder").addEventListener("click", addFolder);
@@ -1011,7 +1065,7 @@ function applyRemote(row) {
     } else {
         item = {
             canvasId: idOk(d.canvasId) ? d.canvasId : "",
-            type: ["note", "text", "image"].includes(d.type) ? d.type : "text",
+            type: ["note", "text", "image", "pic"].includes(d.type) ? d.type : "text",
             ref: idOk(d.ref) ? d.ref : null,
             text: String(d.text || "").slice(0, 2000),
             src: typeof d.src === "string" && d.src.length <= MAX_IMG && IMG_RE.test(d.src) ? d.src : "",
